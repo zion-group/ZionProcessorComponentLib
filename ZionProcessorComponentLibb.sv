@@ -149,10 +149,11 @@ endinterface : ZionProcessorComponentLib_RfWrChannelItf
 `ifdef ZionProcessorComponentLib_ForwardMux
   `__DefErr__(ZionProcessorComponentLib_ForwardMux)
 `else
-  `define ZionProcessorComponentLib_ForwardMux(UnitName,iFwdBusIf_MT,iRs_MT,iRsDat_MT,oDatHazard_MT,oFnlRsDat_MT)  \
+  `define ZionProcessorComponentLib_ForwardMux(UnitName,iFwdBusIf_MT,iRs_MT,iRsDat_MT,oDatHazard_MT,oFnlRsDat_MT,TWO_PIPE)  \
 ZionProcessorComponentLib_ForwardMux  #( .FWD_PORT_NUM(1),                           \
-                                         .INPUT_RS_DATA_WIDTH($bits(iRsDat_MT)),        \
-                                         .OUTPUT_RS_DATA_WIDTH($bits(oFnlRsDat_MT)))    \
+                                         .INPUT_RS_DATA_WIDTH($bits(iRsDat_MT)),     \
+                                         .OUTPUT_RS_DATA_WIDTH($bits(oFnlRsDat_MT))  \
+                                         .TWO_PIPE(TWO_PIPE))                        \
                                 UnitName(                                            \
                                    .iFwdBusIf(iFwdBusIf_MT),                         \
                                    .iRs(iRs_MT),                                     \
@@ -164,7 +165,8 @@ ZionProcessorComponentLib_ForwardMux  #( .FWD_PORT_NUM(1),                      
 module ZionProcessorComponentLib_ForwardMux
 #(FWD_PORT_NUM = "_",
   INPUT_RS_DATA_WIDTH  = "_", //$bits(iRsDat)   //
-  OUTPUT_RS_DATA_WIDTH = "_"  //$bits(oFnlRsDat)//
+  OUTPUT_RS_DATA_WIDTH = "_", //$bits(oFnlRsDat)//
+  TWO_PIPE = "_"
 )( 
   ZionProcessorComponentLib_RfWrChannelItf.in iFwdBusIf[FWD_PORT_NUM],
   input  [4:0] iRs,
@@ -179,7 +181,7 @@ module ZionProcessorComponentLib_ForwardMux
 
     for(genvar i=0;i<FWD_PORT_NUM;i++) begin
       assign datVld[i]       = iFwdBusIf[i].vld;
-      assign datSelBitmap[i] = (iFwdBusIf[i].rd==iRs) & rsVld;
+      assign datSelBitmap[i] = ((iFwdBusIf[i].rd==iRs) & rsVld) ; //& (TWO_PIPE ==1)
       assign allDat[i]       = iFwdBusIf[i].dat;
     end
     assign datVld[FWD_PORT_NUM] = rsVld;
@@ -286,85 +288,6 @@ localparam
   // TODO: Parameter check. Width check
 endmodule : ZionProcessorComponentLib_PcGen
 `endif
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Macro name   : ZionProcessorComponentLib_Fetch
-// Author       : Wenheng Ma
-// Date         : 2019-10-14
-// Version      : 2.0
-// Parameter    : 
-//   START_ADDR -bits of start address
-//   RST_CFG    -type of reset,meaning that whether asynchronous or synchronous reset and reset active low or high 
-//   TWO_PIPE   -
-// Description  :
-//   To fetch instructions
-// Modification History:
-//    Date    |   Author   |   Version   |   Change Description
-//======================================================================================================================
-// 2019-11-08 | Wenheng Ma |     1.0     |   Original Version
-// 2019-11-09 |  Yudi Gao  |     2.0     |   add testbench
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// `ifndef Disable_ZionProcessorComponentLib_Fetch
-// `ifdef ZionProcessorComponentLib_Fetch
-//   `__DefErr__(ZionProcessorComponentLib_Fetch)
-// `else
-//   `define ZionProcessorComponentLib_Fetch(UnitName,clk_MT,rst_MT,iLoadEn_MT,iBjBus_MT,oFetchEn_MT,oPc_MT,oNxtPc_MT,START_ADDR)\
-// ZionProcessorComponentLib_Fetch  #(.START_ADDR(START_ADDR),          \
-//                                    .RST_CFG(4),                      \
-//                                    .TWO_PIPE(1))                     \
-//                                 UnitName(                            \
-//                                    .clk(clk_MT),                     \
-//                                    .rst(rst_MT),                     \
-//                                    .iLoadEn(iLoadEn_MT),             \
-//                                    .iBjBus(iBjBus_MT),               \
-//                                    .oFetchEn(oFetchEn_MT),           \
-//                                    .oPc(oPc_MT),                     \
-//                                    .oNxtPc(oNxtPc_MT)                \
-//                                 );
-//   `endif 
-module ZionProcessorComponentLib_Fetch
-`Use_ZionProcessorComponentLib(Pcl)
-#(START_ADDR = "_" ,
-  RST_CFG    = "_" , 
-  TWO_PIPE   = "_" 
-)(
-  input clk,rst,
-  input iLoadEn,
-  ZionProcessorComponentLib_PcSetChannelItf.in iBjBus,
-  output        oFetchEn,
-  output [31:0] oPc,
-  output [31:0] oNxtPc
-);
-
-  logic fetchStall;
-  `gen_if(TWO_PIPE==0) begin
-    logic loadStall, loadStall_r;
-    assign loadStall = iLoadEn & (~loadStall_r);
-    `BcEnRcDff  (U_oFeStall_r,
-                clk,rst,1'b1,loadStall, // input
-                loadStall_r,            // output
-                '0,RST_CFG              // parameter 
-              ); 
-    assign fetchStall = loadStall   ;
-  end `gen_else begin
-    assign fetchStall = 1'b0;
-  end
-
-  wire [ 2:0] step       = 3'b100      ;
-  wire        pcSetEn    = iBjBus.en   ;
-  wire [31:0] pcSetTgt   = iBjBus.tgtPc;
-  assign      oFetchEn   = ~fetchStall ;
-
-  logic       iSetEn;//[ 3:0]
-  logic      [31:0] iSetPc;
-  logic      [ 2:0] iNxtPcStep;
-  `PclPcGen (U_PcGen, 
-              clk,rst,fetchStall,pcSetEn,pcSetTgt,step,
-              oPc,oNxtPc,
-              START_ADDR, RST_CFG 
-            );
-`Unuse_ZionProcessorComponentLib(Pcl)
-endmodule
-//`endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Macro name   : ZionProcessorComponentLib_LsuItf
@@ -391,12 +314,12 @@ endmodule
 interface ZionProcessorComponentLib_LsuItf
  #(RV64=0);
    localparam DATA_WIDTH = 32*(1+RV64);
-   logic memEn, load, store, unsignedFlg;
+   logic memEn, load, store, unsignedFlg,lwstall;
    logic [1:0] memWidth;
    logic [DATA_WIDTH-1:0] storeDat, memAddr;
  
-   modport in (input  memEn, load, store, unsignedFlg, memWidth, storeDat, memAddr);
-   modport out(output memEn, load, store, unsignedFlg, memWidth, storeDat, memAddr);
+   modport in (input  memEn, load, store, unsignedFlg, memWidth, storeDat, memAddr,lwstall);
+   modport out(output memEn, load, store, unsignedFlg, memWidth, storeDat, memAddr,lwstall);
    modport OutNoAddr(output memEn, load, store, unsignedFlg, memWidth, storeDat);
    modport OutAddr(output memAddr);
  
@@ -424,7 +347,7 @@ interface ZionProcessorComponentLib_LsuItf
  `ifdef ZionProcessorComponentLib_TurtleDecoder
    `__DefErr__(ZionProcessorComponentLib_TurtleDecoder)
  `else
-  `define ZionProcessorComponentLib_TurtleDecoder(UnitName,iPc_MT,iIns_MT,bRfRdIf_MT,oRd_MT,oIntDeRsltIf_MT,oLsuDeRsltIf_MT)  \
+  `define ZionProcessorComponentLib_TurtleDecoder(UnitName,iPc_MT,iIns_MT,bRfRdIf_MT,oRd_MT,oIntDeRsltIf_MT,oLsuDeRsltIf_MT,rdVld_MT)  \
 ZionProcessorComponentLib_TurtleDecoder #()                                    \
                                 UnitName(                                      \
                                    .iPc(iPc_MT),                               \
@@ -432,8 +355,8 @@ ZionProcessorComponentLib_TurtleDecoder #()                                    \
                                    .bRfRdIf(bRfRdIf_MT),                       \
                                    .oRd(oRd_MT),                               \
                                    .oIntDeRsltIf(oIntDeRsltIf_MT),             \
-                                   .oLsuDeRsltIf(oLsuDeRsltIf_MT)              \
-                                   )
+                                   .oLsuDeRsltIf(oLsuDeRsltIf_MT),             \
+                                   .rdVld(rdVld_MT))                           \
   `endif 
 module ZionProcessorComponentLib_TurtleDecoder
 ( 
@@ -442,14 +365,15 @@ module ZionProcessorComponentLib_TurtleDecoder
   ZionProcessorComponentLib_RfRdChannelItf.read bRfRdIf[2],
   output logic [4:0] oRd,
   `RviIntInsExItf.IntBjMemDeOut oIntDeRsltIf, 
-  ZionProcessorComponentLib_LsuItf.OutNoAddr oLsuDeRsltIf
+  ZionProcessorComponentLib_LsuItf.OutNoAddr oLsuDeRsltIf,
+  output rdVld
 );
 
   `RviRvimazDecodeItf RvDeIf(iIns);
 
   wire rs1Vld = RvDeIf.rs1Enable;
   wire rs2Vld = RvDeIf.rs2Enable;
-  wire rdVld  = RvDeIf.rdEnable ;
+  assign rdVld  = RvDeIf.rdEnable ;
   wire [4:0] rs1 = RvDeIf.rs1;
   wire [4:0] rs2 = RvDeIf.rs2;
   assign     oRd = rdVld ? RvDeIf.rd : '0;
@@ -584,137 +508,6 @@ module ZionProcessorComponentLib_RegFile
                                         );
   end
 endmodule : ZionProcessorComponentLib_RegFile
-`endif
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Macro name   : ZionProcessorComponentLib_StoreDatGen
-// Author       : Wenheng Ma
-// Date         : 2019-10-14
-// Version      : 2.0
-// Parameter    : 
-//   NONE
-// Description  :
-//   To store data.
-// Modification History:
-//    Date    |   Author   |   Version   |   Change Description
-//======================================================================================================================
-// 2019-11-08 | Wenheng Ma |     1.0     |   Original Version
-// 2019-11-09 |  Yudi Gao  |     2.0     |   add testbench
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-`ifndef Disable_ZionProcessorComponentLib_StoreDatGen
-`ifdef ZionProcessorComponentLib_StoreDatGen
-  `__DefErr__(ZionProcessorComponentLib_StoreDatGen)
-`else
-  `define ZionProcessorComponentLib_StoreDatGen(UnitName,iStoreIf_MT,oWrMask_MT,oWrDat_MT)\
-ZionProcessorComponentLib_StoreDatGen  #()                     \
-                                UnitName(                      \
-                                   .iStoreIf(iStoreIf_MT),     \
-                                   .oWrMask(oWrMask_MT),       \
-                                   .oWrDat(oWrDat_MT)          \
-                                );
-  `endif 
-module ZionProcessorComponentLib_StoreDatGen
-`Use_ZionProcessorComponentLib(Pcl)
-( ZionProcessorComponentLib_LsuItf.in iStoreIf,
-  output logic [31:0] oWrMask,
-  output logic [31:0] oWrDat  
-);
-  
-  localparam  intp [2:0]STORE_WIDTH = {32'd32,32'd16,32'd8};
-  wire [1:0] storeAddr = iStoreIf.memAddr[1:0];
-  logic [2:0] storeWidthOh, storeWidthOhTmp;
-
-  `BcBin2Oh(U_storeWidthOhGen, iStoreIf.memWidth, storeWidthOhTmp);
-  assign storeWidthOh = `BcMaskM(iStoreIf.store,storeWidthOhTmp);
-  `BcWriteMaskExtd(U_MaskGen,storeWidthOh,storeAddr,oWrMask,STORE_WIDTH);
-  `BcWriteDatExtd(U_DatGen,storeWidthOh,storeAddr,iStoreIf.storeDat,oWrDat,STORE_WIDTH);
-`Unuse_ZionProcessorComponentLib(Pcl)
-endmodule
-`endif
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Macro name   : ZionProcessorComponentLib_WriteBack
-// Author       : Wenheng Ma
-// Date         : 2019-10-14
-// Version      : 2.0
-// Parameter    : 
-//   NONE
-// Description  :
-//   Write back.
-// Modification History:
-//    Date    |   Author   |   Version   |   Change Description
-//======================================================================================================================
-// 2019-11-08 | Wenheng Ma |     1.0     |   Original Version
-// 2019-11-09 |  Yudi Gao  |     2.0     |   add testbench
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-`ifndef Disable_ZionProcessorComponentLib_WriteBack
-`ifdef ZionProcessorComponentLib_WriteBack
-  `__DefErr__(ZionProcessorComponentLib_WriteBack)
-`else
-  `define ZionProcessorComponentLib_WriteBack(UnitName,clk_MT,rst_MT,iLoadIf_MT,iMemDat_MT,iRd_MT,iIntRslt_MT,oWbBus_MT,oFwdBus_MT,RV64,TWO_PIPE,RST_CFG)\
-ZionProcessorComponentLib_WriteBack #(.RV64(RV64),                   \
-                                   .TWO_PIPE(TWO_PIPE),              \
-                                   .RST_CFG(RST_CFG))                \
-                                UnitName(                            \
-                                   .clk(clk_MT),                     \
-                                   .rst(rst_MT),                     \
-                                   .iLoadIf(iLoadIf_MT),             \
-                                   .iMemDat(iMemDat_MT),             \
-                                   .iRd(iRd_MT),                     \
-                                   .iIntRslt(iIntRslt_MT),           \
-                                   .oWbBus(oWbBus_MT),               \
-                                   .oFwdBus(oFwdBus_MT)              \
-                                );
-  `endif 
-module ZionProcessorComponentLib_WriteBack
-`Use_ZionProcessorComponentLib(Pcl)
-#(RV64     = 0,
-  TWO_PIPE = 1,
-  RST_CFG  = 4,
-localparam 
-  DATA_WIDTH = 32*(1+RV64)
-)(
-  input                                         clk,rst   ,
-  ZionProcessorComponentLib_LsuItf.in           iLoadIf   ,
-  input  logic [DATA_WIDTH-1:0]                 iMemDat   ,
-  input  logic [           4:0]                 iRd       ,
-  input  logic [DATA_WIDTH-1:0]                 iIntRslt  ,
-  ZionProcessorComponentLib_RfWrChannelItf.out  oWbBus    ,
-  ZionProcessorComponentLib_RfWrChannelItf.out  oFwdBus    
-
-);
-
-  logic [4:0] rd;
-  logic       loadEn;
-  logic [DATA_WIDTH-1:0] exDatTmp, exDat, loadRslt;
-  assign exDatTmp = iIntRslt | DATA_WIDTH'({iLoadIf.memAddr[1:0],iLoadIf.memWidth,iLoadIf.unsignedFlg});
-  `gen_if(TWO_PIPE == 0) begin
-    assign rd        = iRd         ;
-    assign loadEn    = iLoadIf.load;
-    assign exDat     = exDatTmp    ;
-  end `gen_else begin
-    logic [$bits(rd)+$bits(loadEn)+$bits(exDatTmp)-1:0] allDat, allDat_r;
-    `BcEnRcDff(U_PipeReg,clk,rst,1'b1,allDat,allDat_r,RST_CFG);
-    assign allDat = {iRd,iLoadIf.load,exDatTmp};
-    assign {rd,loadEn,exDat} = allDat_r;
-  end
-  localparam intp [2:0] LOAD_WIDTH = {32'd32,32'd16,32'd8};
-  wire       loadSigned = ~exDat[0] ;
-  wire [1:0] loadWidth  = exDat[2:1];
-  wire [1:0] loadAddr   = exDat[4:3];
-  logic [2:0] loadWidthOh, loadWidthOhTmp;
-  `BcBin2Oh(U_LoadWidthOhGen, loadWidth, loadWidthOhTmp);
-  assign loadWidthOh = (loadEn)? loadWidthOhTmp : '0;
-  `BcDatRead(U_LoadUnit,loadSigned,loadWidthOh,loadAddr,iMemDat,loadRslt,LOAD_WIDTH,0);//TODO: add unsign
-    
-  assign oWbBus.vld = |rd;
-  assign oWbBus.rd  = rd;
-  assign oWbBus.dat = (loadEn)? loadRslt : exDat;
-
-  assign oFwdBus.vld = |rd;
-  assign oFwdBus.rd  = rd;
-  assign oFwdBus.dat = (loadEn)? loadRslt : exDat;
-
-`Unuse_ZionProcessorComponentLib(Pcl)
-endmodule
 `endif
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
